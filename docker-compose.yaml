@@ -1,0 +1,33 @@
+services:
+  streamlit-app:
+    build:
+      context: ./streamlit_app
+      dockerfile: dockerfile
+    ports:
+      - "8501:8501"
+    depends_on:
+      - llama3
+    command:
+      [
+        "streamlit",
+        "run",
+        "dashboard.py",
+        "--server.port=8501",
+      ]
+    container_name: streamlit_app
+    networks:
+      - llama3-network
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  llama3:
+    image: langchain4j/ollama-llama3
+    networks:
+      - llama3-network
+    container_name: llama3
+    restart: always
+
+networks:
+  llama3-network:
+    name: llama3-network
