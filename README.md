@@ -1,6 +1,6 @@
 # SOCKG Dashboard
 
-SOCKG Dashboard is an interactive web application designed for the SOCKG (Soil Organic Carbon Knowledge Graph). It provides visual display of key information as well as natural language querying the knowledge graph.
+The SOCKG Dashboard is an interactive web application built for the Soil Organic Carbon Knowledge Graph (SOCKG). It provides an intuitive layer above the knowledge graph, enabling users to explore SOCKG through predefined pages without needing to write query language. These pages are designed to cover most of the knowledge graph, allowing users to interact with SOCKG’s data easily. However, for advanced use cases that require aggregation across multiple pages, direct access to the SPARQL endpoint or Neo4j browser is recommended. 
 
 ## Table of Contents
 
@@ -14,12 +14,16 @@ SOCKG Dashboard is an interactive web application designed for the SOCKG (Soil O
 
 ## Features
 
-- **Interactive Web Interface**: Built with Streamlit.
-- **Data Visualization**: Visualize key classes such as Field, Experimental Unit, Treatment, ...
+- **Data exploration pages**: These pre-defined pages allow users to explore specific aspects of the knowledge graph that are of particular importance. They include:
+  - ***Field Exploration***: This page allows users to select one of many available fields in SOCKG, each representing a section of land with multiple experimental units. Users can view useful information about each field, such as precipitation levels and associated research publications.
+  - ***Experimental Unit Exploration***:At the core of SOCKG, data is measured at the experimental unit level. This exploration page enables users to examine individual experimental units and the data collected on them, filtering them by criteria like geographical location (state, county, site, and field). When a unit is selected, its exact location is displayed (when available), along with relevant data. Users can also plot the data on a 2D graph with customizable axes.
+  - ***Treatment Exploration***: This page helps users explore treatments that influence agricultural outcomes and soil health. Filters allow users to refine their search by factors like crop type and fertilizer type (organic, synthetic, etc.). Once a treatment is selected, all experimental units associated with that treatment are displayed, user can also jump from the treatment page to experimental unit page by clicking.
+  - ***Weather Station Exploration***: This page provides access to weather data collected by multiple weather stations throughout the year. Once a weather station is selected, its data is displayed in a table, and users can optionally plot data on a 2D graph with chosen x and y axes.
+- **Ontology Exploration**: This page offers users a visual overview of the SOCKG structure as a knowledge graph (how classes are interconnected with each other). Users can click on any node (class) to view the total number of instances in that class (e.g., 3,809 experimental units). Each class has its own data attributes (akin to table columns in SQL). By double-clicking a class, users can see its attributes, and by clicking an attribute, they can view sample values and data types.
 - **Natural Language Querying**: Query the Neo4j knowledge graph using natural language.
 
 ## Prerequisites
-
+To run the dashboard locally, ensure the following requirements are met:
 - Docker installed on your system (version 27.1.1 is tested)
 - Since this project make use llama3:7b. 16GB of memory and a GPU available machine is recommmend
 
@@ -60,12 +64,14 @@ This command builds the necessary Docker images and starts the containers as def
 
 ## Usage
 
-After the Docker build process completes and containers are running:
+If built locally, After the Docker build process completes and containers are running:
 
 1. Open your web browser and go to `http://localhost:8501`
 2. You will see the SOCKG Dashboard web interface.
 
 Note: The application runs on port 8501 by default. Ensure this port is not in use by other applications on your system. Below is the example run of the app.
+
+The dashboard is also available online at `https://sockgdashboard.streamlit.app/`
 
 ![Watch the Gif](./sockg_dashboard_demo.gif)
 ## Directory Structure
@@ -76,7 +82,7 @@ The project is organized as follows (assume sockg-dashboard is root):
 │   ├── .streamlit        # Configuration directory (e.g., secrets.toml)
 │   ├── collected_datas/  # User ratings for question-cypher pairs
 │   │   └── ....json
-│   ├── componets/        # Reusable visualization components
+│   ├── components/       # Reusable visualization components
 │   |   └── ...
 |   ├── models/           # LangChain objects for LLMs and embeddings
 |   ├── neo4j-connector   # Neo4j driver initialization
@@ -87,15 +93,3 @@ The project is organized as follows (assume sockg-dashboard is root):
 ├── Docker-compose.yaml   # Docker Compose specification
 └── README.md             # Project overview
 ```
-
-## Keys Components
-1. Front End: 
-  * The app is built using [Streamlit](https://streamlit.io/) framework, and organized into [subpages](https://docs.streamlit.io/get-started/tutorials/create-a-multipage-app)
-  * 3D graph is generated using [Plotly](https://plotly.com/python/) and rendered by streamlit.
-  * Geospatial map is generated using [Pydeck](https://deckgl.readthedocs.io/en/latest/) and rendered using streamlit.
-
-  2. Back End:
-  Natural Language to Cypher is a subpage allows users to query the knowledge graph using natural language.
-  * Powered by LLaMA3(for Embedding) and Gemini(for inference) as a RAG (retrieval-augmented generation) agent with dynamic few-shot learning.
-  * Uses google gemini as llm model for Cypher generation and Llama3 for sentence embedding.
-  * Few-shot examples, including question-Cypher-query pairs, are stored in a Chrono in-memory database for dynamic selection using sentence embedding.
