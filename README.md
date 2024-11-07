@@ -35,7 +35,7 @@ To set up and run the application:
 
 1. Clone the repository:
 ```
-$ https://github.com/idirlab/sockg.git
+$ git clone https://github.com/idirlab/sockg-dashboard.git
 ```
 2. Go into sockg-dashboard directory
 ```
