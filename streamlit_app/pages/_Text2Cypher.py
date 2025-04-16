@@ -1,113 +1,160 @@
 import streamlit as st
-from tools.text2cypher import generate_cypher
-from api.dao.general import GeneralDAO
-from tools.rating import save_ratings
-from api.neo4j import init_driver
 from components.navigation_bar import navigation_bar
+from SPARQLWrapper import SPARQLWrapper, CSV
+from code_editor import code_editor
+import pandas as pd
+from io import StringIO
+import os
+
+# Text2Cypher imports
+from text2sparql.fetch_context import fetch_ontology_context
+from text2sparql.prompt_template import generate_prompt, extract_sparql_query
+from text2sparql.models import LLM_MODEL
 
 
-driver = init_driver()
+SPARQL_ENDPOINT = os.getenv('SPARQL_ENDPOINT')
 state = st.session_state
 
-# Page config and icon
-st.set_page_config(layout="wide", page_title="Text2Cypher View", page_icon=":keyboard:")
-
-# sidebar for navigation
+# --------------------------- Page Setup --------------------------- #
+st.set_page_config(layout="wide", page_title="Text2Sparql View", page_icon=":keyboard:")
 navigation_bar()
+st.markdown("<h1 style='text-align: center; color: #4CAF50;'>Text To Sparql</h1>", unsafe_allow_html=True)
+st.subheader("Describe your query in natural language")
 
-def upvote_callback():
-    save_ratings(state['user_input'], state['cypher_code'], "up")
-    state.rated = True
 
-def downvote_callback():
-    save_ratings(state['user_input'], state['cypher_code'], "down")
-    state.rated = True
-
+# --------------------------- Session State Init --------------------------- #
 def init_state(key, value):
     if key not in state:
         state[key] = value
 
-def _set_state_cb(**kwargs):
-    for state_key, widget_key in kwargs.items():
-        val = state.get(widget_key, None)
-        if val is not None or val == "":
-            setattr(state, state_key, state[widget_key])
-    
-init_state('cypher_code', None)
-init_state('query_result', None)
-init_state('user_input', None)
-init_state('rated', False)
-init_state('run_query', False)
+for k, v in {
+    'generated_sparql_query': None,
+    'query_result': None,
+    'user_input': "",
+    'generating': False,
+    'relevant_classes': None,
 
-def _set_run_query_cb():
-    state['run_query'] = True
-    state['rated'] = False
-    state['cypher_code'] = None
+}.items():
+    init_state(k, v)
+
+
+# --------------------------- Core Logic --------------------------- #
+def generate_sparql(user_question):
+    model = LLM_MODEL(os.getenv('LLM_MODEL'))
+    onto_context = fetch_ontology_context(user_question)
+
+    # Convert the ontology context to a string
+    onto_text = [c['summary'] for c in onto_context]
+    onto_context_str = "\n\n".join(onto_text)
+
+    prompt = generate_prompt(user_question, "", onto_context_str)
+    response = model.generate(prompt)
+    generated_sparql = extract_sparql_query(response)
+
+    # make a dictionary to store the generated query and intermediate steps
+    response = {
+        "relevant_classes": onto_context,
+        "generated_query": generated_sparql,
+    }
+    return response
+
+def execute_sparql_query(query):
+    sparql_client = SPARQLWrapper(SPARQL_ENDPOINT)
+    sparql_client.setReturnFormat(CSV)
+    sparql_client.setQuery(query)
+    response = sparql_client.queryAndConvert()
+
+    # Read the CSV using pandas read_csv
+    csv_data = response.decode('utf-8')
+    csv_io = StringIO(csv_data)
+    response = pd.read_csv(csv_io)
+    return response
+
+# --------------------------- UI: Input --------------------------- #
+st.text_input(
+    label="Natural Language Query",
+    value=state.user_input,
+    key='user_input',
+    placeholder="e.g. Return a random experimental unit located in Texas",
+    label_visibility='collapsed'
+)
+if st.button("🔄 Generate", type="primary"):
+    state['generating'] = True
+    state['generated_sparql_query'] = None
+    state['relevant_classes'] = None
     state['query_result'] = None
 
-st.markdown("<h1 style='text-align: center; color: #4CAF50;'>Text To Cypher Conversion</h1>", unsafe_allow_html=True)
-st.subheader("Query the knowledge graph using natural language!")
-
-tutorial_col, tips_col = st.columns([1,1])
-
-with tutorial_col:
-    with st.expander("How it works", expanded=False):
-        st.write("""
-        1. Enter your query in natural language.
-        2. Click 'Generate' to create the corresponding Cypher query.
-        3. The generated Cypher code will automatically run against our database.
-        4. The generated Cypher code and query results will be returned.
-        5. (Optional) Rate the response to help us improve! (Only the quality of the answer (thumbs up or down) is stored).
-        """)
-        st.write("**Example**: Return all Fields. For each field, return the name and the number of Experimental Units it has.")
-
-with tips_col:
-    with st.expander("Prompts Tips", expanded=False):
-        st.write("""
-        1. Be clear and specific in your query. Provide detailed descriptions of the data you want to retrieve, closely matching the node labels, relationships, and property values.
-        2. Use declarative language sometime give better result than asking questions. Start with phrases like "Show me a list of..." or "Return all...".
-        3. Ask precise questions. For example, instead of "Return all fields," try "Return all fields and their respective longitudes and latitudes."
-        4. Avoid ambiguous questions that are not related to the database.
-        """)
-
-
-st.text_input(
-    "Enter your query:", value=state.user_input, key='user_input',
-    on_change=_set_state_cb, kwargs={'user_input': 'user_input'}
-)
-
-generate_col, _ = st.columns([1,4])
-with generate_col:
-    st.button(
-        "🔄 Generate", type="primary", on_click=_set_run_query_cb, args=()
-    )
-
-if state['run_query']:
-    with st.spinner("🔧 Generating Cypher..."):
+# --------------------------- SPARQL Generation --------------------------- #
+if state['generating']:
+    with st.spinner("🔧 Generating SPARQL..."):
         try:
-            response = generate_cypher(state['user_input'])
-            state['cypher_code'] = response['constructed_cypher']
-            state['run_query'] = False
+            res = generate_sparql(state.user_input)
+            state['generated_sparql_query'] = res['generated_query']
+            state['relevant_classes'] = res['relevant_classes']
         except Exception as e:
-            st.error(f"❌ An error occurred: {e}")
-            state['run_query'] = False
+            st.error(f"❌ Error generating query: {e}")
+        finally:
+            state['generating'] = False
 
-if state['cypher_code']:
-    st.subheader("Generated Cypher Code")
-    st.code(state['cypher_code'], language='cypher')
-    
-    st.subheader("Query Result")
-    general_dao = GeneralDAO(driver)
-    query_result = general_dao.run_query(state['cypher_code'])
-    st.dataframe(data=query_result, hide_index=False, use_container_width=True)
-    
-    if not state['rated']:
-        st.markdown("### Rate this response:")
-        col1, col2, _ = st.columns([1,1,4])
-        with col1:
-            st.button("👍 Upvote", key="upvote", on_click=upvote_callback)
-        with col2:
-            st.button("👎 Downvote", key="downvote", on_click=downvote_callback)
+# --------------------------- UI: Code Editor --------------------------- #
+if state['generated_sparql_query']:
+    # Hide the generated SPARQL query by default
+    with st.expander("Show hidden step", expanded=False):
+        st.markdown("##### 1. Fetch Relevant Ontology")
+        st.markdown("This step fetch a subset of the ontology that is relevant to the user query using embedding. The relevant classes that seem to be related to the user query are shown below.")
+        relevant_classes = state['relevant_classes']
+        
+        # Limit number of columns per row
+        max_cols_per_row = 4
 
-    if state['rated']:
-        st.success("✅ Thanks for your feedback!")
+        # Chunk the relevant_classes list
+        for i in range(0, len(relevant_classes), max_cols_per_row):
+            chunk = relevant_classes[i:i + max_cols_per_row]
+            cols = st.columns(len(chunk))  # Create columns only for this chunk
+            for col, cls in zip(cols, chunk):
+                with col:
+                    with st.popover(label=cls['name']):
+                        st.text(cls['summary'])
+
+        # relevant_classes = "\n".join(relevant_classes)
+        st.markdown("##### 2. Generated SPARQL Query")
+        st.markdown("Using the above ontology context, llm is prompted to generate a SPARQL query. The generated query is shown below.")
+        response = code_editor(
+            code=state['generated_sparql_query'],
+            lang='sparql',
+            theme='github-light',
+            height=200,
+            # key='sparql_code_editor',
+            allow_reset=True,
+            shortcuts="vscode",
+            buttons=[{
+                "name": "Run",
+                "feather": "Play",
+                "primary": True,
+                "hasText": True,
+                "showWithIcon": True,
+                "alwaysOn": True,
+                "commands": ["submit"],
+                "style": {"bottom": "0.44rem", "right": "0.4rem"}
+            }]
+        )
+        st.info("The generated query may be incorrect — feel free to edit it in the code editor above and click Run to execute it.")
+        if response and response.get("type") == "submit":
+            final_query = response.get("text", "")
+            try:
+                result = execute_sparql_query(final_query)
+                state['query_result'] = result
+            except Exception as e:
+                st.error(f"❌ Error executing query: {e}")
+                result = None
+
+
+    # Rerun query result if the button is clicked
+    if state['query_result'] is None:
+        state['query_result'] = execute_sparql_query(state['generated_sparql_query'])
+    st.markdown("### Query Result")
+    st.dataframe(
+        data=state['query_result'],
+        use_container_width=True,
+        hide_index=True,
+    )
