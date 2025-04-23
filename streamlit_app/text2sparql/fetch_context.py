@@ -88,9 +88,11 @@ def fetch_ontology_context(query):
     # Return a dictionary
     res = []
     for doc in docs:
-        res.append({
-            "name": doc['name'],
-            "summary": doc['summary'],
-        })
+        # Check if the document has the 'name' and 'summary' fields
+        if 'name' in doc and 'summary' in doc:    
+            res.append({
+                "name": doc['name'],
+                "summary": doc['summary'],
+            })
 
     return res
