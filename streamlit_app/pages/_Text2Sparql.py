@@ -13,7 +13,6 @@ from text2sparql.models import LLM_MODEL
 
 
 SPARQL_ENDPOINT = os.getenv('SPARQL_ENDPOINT')
-state = st.session_state
 
 # --------------------------- Page Setup --------------------------- #
 st.set_page_config(layout="wide", page_title="Text2Sparql View", page_icon=":keyboard:")
@@ -24,30 +23,31 @@ st.subheader("Describe your query in natural language")
 
 # --------------------------- Session State Init --------------------------- #
 def init_state(key, value):
-    if key not in state:
-        state[key] = value
+    if key not in st.session_state:
+        st.session_state[key] = value
 
 for k, v in {
-    'generated_sparql_query': None,
+    'current_sparql_query': "",
     'query_result': None,
     'user_input': "",
     'generating': False,
     'relevant_classes': None,
+    'llm_generated_query': "",
 
 }.items():
     init_state(k, v)
 
 # Take the user input and generate a SPARQL query call back
 def generate_callback():
-    state['relevant_classes'] = None
-    state['generated_sparql_query'] = None
-    state['query_result'] = None
-    state['generating'] = True
+    st.session_state['relevant_classes'] = None
+    st.session_state['current_sparql_query'] = ""
+    st.session_state['llm_generated_query'] = ""
+    st.session_state['query_result'] = None
+    st.session_state['generating'] = True
 
 # --------------------------- Check query parameter --------------------------- #
-# st.write(st.query_params)
 if 'q' in st.query_params:
-    state['user_input'] = st.query_params['q']
+    st.session_state['user_input'] = st.query_params['q']
     st.query_params.clear()
     generate_callback()
 
@@ -83,9 +83,9 @@ def execute_sparql_query(query):
     return response
 
 # --------------------------- UI: Input --------------------------- #
-state['user_input'] = st.text_input(
+st.session_state['user_input'] = st.text_input(
     label="Natural Language Query",
-    value=state.user_input,
+    value=st.session_state.user_input,
     key='user_input_textbox',
     placeholder="e.g. Return a random experimental unit located in Texas",
     label_visibility='collapsed'
@@ -93,24 +93,23 @@ state['user_input'] = st.text_input(
 st.button("🔄 Generate", type="primary", on_click=generate_callback)
 
 # --------------------------- SPARQL Generation --------------------------- #
-if state['generating']:
+if st.session_state['generating']:
     with st.spinner("🔧 Generating SPARQL..."):
         try:
-            res = generate_sparql(state.user_input)
-            state['generated_sparql_query'] = res['generated_query']
-            state['relevant_classes'] = res['relevant_classes']
+            res = generate_sparql(st.session_state['user_input'])
+            st.session_state['llm_generated_query'] = res['generated_query']
+            st.session_state['relevant_classes'] = res['relevant_classes']
         except Exception as e:
             st.error(f"❌ Error generating query: {e}")
         finally:
-            state['generating'] = False
+            st.session_state['generating'] = False
 
 # --------------------------- UI: Code Editor --------------------------- #
-if state['generated_sparql_query']:
-    # Hide the generated SPARQL query by default
+if st.session_state['llm_generated_query']:
     with st.expander("Show hidden step", expanded=False):
         st.markdown("##### 1. Fetch Relevant Ontology")
         st.markdown("This step fetch a subset of the ontology that is relevant to the user query using embedding. The relevant classes that seem to be related to the user query are shown below.")
-        relevant_classes = state['relevant_classes']
+        relevant_classes = st.session_state['relevant_classes']
         
         # Limit number of columns per row
         max_cols_per_row = 4
@@ -127,12 +126,12 @@ if state['generated_sparql_query']:
         st.markdown("##### 2. Generated SPARQL Query")
         st.markdown("Using the above ontology context, llm is prompted to generate a SPARQL query. The generated query is shown below.")
         response = code_editor(
-            code=state['generated_sparql_query'],
+            code=st.session_state['llm_generated_query'],
             lang='sparql',
             theme='github-light',
             height=200,
-            key='sparql_code_editor',
-            allow_reset=True,
+            # key='sparql_code_editor',
+            allow_reset=False,
             shortcuts="vscode",
             buttons=[{
                 "name": "Run",
@@ -146,23 +145,29 @@ if state['generated_sparql_query']:
             }]
         )
         st.info("The generated query may be incorrect — feel free to edit it in the code editor above and click Run to execute it.")
+        
         if response and response.get("type") == "submit":
             final_query = response.get("text", "")
-            state['generated_sparql_query'] = final_query
-            try:
-                result = execute_sparql_query(final_query)
-                state['query_result'] = result
-            except Exception as e:
-                st.error(f"❌ Error executing query: {e}")
-                result = None
+            st.session_state['current_sparql_query'] = final_query
+
+        # Assign the generated query to the current_sparql_query if it is empty
+        if st.session_state['current_sparql_query'] == "":
+            st.session_state['current_sparql_query'] = st.session_state['llm_generated_query']
 
 
-    # Rerun query result if the button is clicked
-    if state['query_result'] is None:
-        state['query_result'] = execute_sparql_query(state['generated_sparql_query'])
+        try:
+            result = execute_sparql_query(st.session_state['current_sparql_query'])
+            st.session_state['query_result'] = result
+        except Exception as e:
+            st.error(f"❌ Error executing query: {e}")
+            result = None
+    
+# --------------------------- UI: Query Result --------------------------- #
+# Only display if the query result is not None
+if st.session_state['query_result'] is not None:
     st.markdown("### Query Result")
     st.dataframe(
-        data=state['query_result'],
+        data=st.session_state['query_result'],
         use_container_width=True,
         hide_index=True,
     )
