@@ -16,13 +16,5 @@ services:
       ]
     network_mode: host
 
-#   llama3:
-#     image: langchain4j/ollama-llama3
-#     networks:
-#       - llama3-network
-#     container_name: llama3
-#     restart: always
-
-# networks:
-#   llama3-network:
-#     name: llama3-network
+    env_file:
+      - .env 
